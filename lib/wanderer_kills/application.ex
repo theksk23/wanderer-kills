@@ -1,0 +1,266 @@
+# lib/wanderer_kills/application.ex
+
+defmodule WandererKills.Application do
+  @moduledoc """
+  OTP Application entry point for WandererKills.
+
+  Supervises:
+    1. EtsOwner for WebSocket stats tracking
+    2. A Task.Supervisor for background jobs
+    3. Phoenix.PubSub for event broadcasting
+    4. SimpleSubscriptionManager for simplified subscription handling
+    5. Cachex instance for unified caching
+    6. Observability/monitoring processes
+    7. Phoenix Endpoint (WandererKillsWeb.Endpoint)
+    8. Telemetry.Poller for periodic measurements
+    9. RedisQ for real-time killmail streaming (conditionally)
+  """
+
+  use Application
+  require Logger
+
+  alias WandererKills.Config
+  alias WandererKills.Core.ShipTypes.Updater
+  alias WandererKills.Core.Storage.KillmailStore
+  alias WandererKills.Core.Support.SupervisedTask
+  import Cachex.Spec
+
+  # Compile-time configuration
+  @esi_ttl Application.compile_env(:wanderer_kills, [:cache, :esi_ttl], 3600)
+
+  @impl true
+  def start(_type, _args) do
+    # 0) Validate feature flag configuration
+    validate_feature_flags!()
+
+    # 1) Initialize ETS for our unified KillmailStore
+    KillmailStore.init_tables!()
+
+    # 2) Attach telemetry handlers
+    # Telemetry.attach_batch_handlers()
+
+    # 3) Build children list
+    children =
+      (core_children() ++ cache_children() ++ observability_children())
+      |> maybe_web_components()
+      |> maybe_redisq()
+      |> maybe_historical_streaming()
+
+    # 4) Start the supervisor
+    opts = [strategy: :one_for_one, name: WandererKills.Supervisor]
+
+    case Supervisor.start_link(children, opts) do
+      {:ok, pid} ->
+        Logger.info("[Application] Supervisor started successfully")
+        # Start ship type update asynchronously without blocking application startup
+        SupervisedTask.start_child(
+          fn ->
+            Process.sleep(1000)
+            start_ship_type_update()
+          end,
+          task_name: "startup_ship_type_update",
+          metadata: %{module: __MODULE__}
+        )
+
+        Logger.info("[Application] Application startup completed successfully")
+        {:ok, pid}
+
+      error ->
+        Logger.error("[Application] Supervisor failed to start: #{inspect(error)}")
+        error
+    end
+  end
+
+  # Core OTP processes that don't depend on web functionality
+  defp core_children do
+    base_children = [
+      # Start Finch for HTTP requests
+      {Finch,
+       name: WandererKills.Finch,
+       pools: %{
+         :default => [size: 10, count: 2],
+         "https://zkillredisq.stream" => [
+           size: 2,
+           count: 1,
+           conn_opts: [timeout: 60_000],
+           # >45s poll timeout; adjust via config if needed
+           conn_max_idle_time: 90_000
+         ]
+       }},
+      WandererKills.Core.EtsOwner,
+      Task.Supervisor.child_spec(name: WandererKills.TaskSupervisor),
+      {Phoenix.PubSub, name: WandererKills.PubSub},
+      WandererKills.Http.ConnectionMonitor,
+      WandererKills.Subs.SimpleSubscriptionManager,
+      WandererKills.Ingest.HistoricalFetcher,
+      WandererKills.Core.Storage.CleanupWorker,
+      WandererKills.Core.Storage.MemoryMonitor
+    ]
+
+    # Add smart rate limiting components (always add SmartRateLimiter, conditionally add others)
+    base_children ++
+      [
+        {WandererKills.Ingest.SmartRateLimiter,
+         Application.get_env(:wanderer_kills, :smart_rate_limiter, [])}
+      ] ++ maybe_add_request_coalescer_child()
+  end
+
+  defp maybe_add_request_coalescer_child do
+    features = Application.get_env(:wanderer_kills, :features, [])
+
+    []
+    |> maybe_add_request_coalescer(features[:request_coalescing])
+  end
+
+  defp maybe_add_request_coalescer(children, true) do
+    config = Application.get_env(:wanderer_kills, :request_coalescer, [])
+    [{WandererKills.Ingest.RequestCoalescer, config} | children]
+  end
+
+  defp maybe_add_request_coalescer(children, _), do: children
+
+  # Observability and monitoring processes (consolidated)
+  defp observability_children do
+    [
+      WandererKills.Core.Observability.Metrics,
+      WandererKills.Core.Observability.Monitoring,
+      WandererKills.Core.Observability.Telemetry,
+      WandererKillsWeb.Channels.HeartbeatMonitor,
+      {:telemetry_poller, measurements: telemetry_measurements(), period: :timer.seconds(10)}
+    ]
+  end
+
+  # Create a single Cachex instance with namespace support
+  defp cache_children do
+    default_ttl_ms = @esi_ttl * 1_000
+
+    opts = [
+      default_ttl: default_ttl_ms,
+      expiration:
+        expiration(
+          interval: :timer.seconds(60),
+          default: default_ttl_ms,
+          lazy: true
+        ),
+      hooks: [
+        hook(module: Cachex.Stats)
+      ]
+    ]
+
+    [
+      {Cachex, [:wanderer_cache, opts]}
+    ]
+  end
+
+  defp telemetry_measurements do
+    [
+      {WandererKills.Core.Observability.Monitoring, :measure_http_requests, []},
+      {WandererKills.Core.Observability.Monitoring, :measure_cache_operations, []},
+      {WandererKills.Core.Observability.Monitoring, :measure_fetch_operations, []},
+      {WandererKills.Core.Observability.Monitoring, :measure_system_resources, []}
+    ]
+  end
+
+  # Conditionally include web components based on configuration
+  defp maybe_web_components(children) do
+    if start_web_components?() do
+      children ++
+        [
+          WandererKillsWeb.Endpoint
+        ]
+    else
+      children
+    end
+  end
+
+  defp maybe_redisq(children) do
+    if Config.start_redisq?() do
+      children ++
+        [
+          WandererKills.Ingest.CircuitBreakerMonitor,
+          WandererKills.Ingest.RedisQ
+        ]
+    else
+      children
+    end
+  end
+
+  defp maybe_historical_streaming(children) do
+    config = Application.get_env(:wanderer_kills, :historical_streaming, [])
+
+    if Keyword.get(config, :enabled, false) do
+      children ++ [WandererKills.Ingest.Historical.HistoricalStreamer]
+    else
+      children
+    end
+  end
+
+  # Check if web components should start
+  # Can be disabled by setting WANDERER_KILLS_HEADLESS=true or :wanderer_kills, :headless = true
+  defp start_web_components? do
+    case System.get_env("WANDERER_KILLS_HEADLESS") do
+      "true" -> false
+      _ -> !Application.get_env(:wanderer_kills, :headless, false)
+    end
+  end
+
+  @spec start_ship_type_update() :: :ok
+  defp start_ship_type_update do
+    task_result =
+      SupervisedTask.start_child(
+        &execute_ship_type_update/0,
+        task_name: "ship_type_update",
+        metadata: %{module: __MODULE__}
+      )
+
+    handle_task_start_result(task_result)
+    :ok
+  end
+
+  defp execute_ship_type_update do
+    case Updater.update_ship_types() do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.error("Failed to update ship types: #{inspect(reason)}")
+        {:error, reason}
+    end
+  end
+
+  defp handle_task_start_result({:ok, _pid}) do
+    Logger.debug("Ship type update task started successfully")
+  end
+
+  defp handle_task_start_result({:error, reason}) do
+    Logger.error("Failed to start ship type update task: #{inspect(reason)}")
+  end
+
+  # Validate feature flag configuration to prevent invalid setups
+  defp validate_feature_flags! do
+    features = Application.get_env(:wanderer_kills, :features, [])
+
+    request_coalescing = features[:request_coalescing]
+    smart_rate_limiting = features[:smart_rate_limiting]
+
+    if request_coalescing == true and smart_rate_limiting == false do
+      raise """
+      Invalid feature flag configuration detected!
+
+      Request coalescing is enabled but smart rate limiting is disabled.
+      Request coalescing depends on smart rate limiting to function properly.
+
+      Please ensure both features are enabled together:
+      config :wanderer_kills, :features,
+        request_coalescing: true,
+        smart_rate_limiting: true
+
+      Or disable request coalescing:
+      config :wanderer_kills, :features,
+        request_coalescing: false
+      """
+    end
+
+    :ok
+  end
+end

@@ -1,0 +1,13 @@
+version: "3.8"
+
+services:
+  wanderer-kills:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      PORT: 4004
+      MIX_ENV: prod
+    ports:
+      - "4004:4004"
+    restart: unless-stopped

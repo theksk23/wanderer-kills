@@ -1,0 +1,30 @@
+# docker-compose.yml
+version: "3.8"
+
+services:
+  wanderer-kills:
+    build:
+      context: ..                          # ← use the repo root
+      dockerfile: .devcontainer/Dockerfile # ← path to your Dockerfile
+    environment:
+      PORT: 4004
+      MIX_ENV: dev
+      WEB_APP_URL: "http://localhost:4004"
+      ERL_AFLAGS: "-kernel shell_history enabled"
+    ports:
+      - "4004:4004"
+    networks:
+      - default
+    volumes:
+      - ..:/app:delegated
+      - elixir-deps:/app/deps            # cache deps
+      - elixir-build:/app/_build         # cache build artifacts
+    command: sleep infinity
+    user: "vscode"                  # run as non-root user
+
+volumes:
+  elixir-deps:
+  elixir-build:
+
+
+
