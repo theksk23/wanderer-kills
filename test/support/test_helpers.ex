@@ -135,8 +135,14 @@ defmodule WandererKills.TestHelpers do
   Sets up common mocks for testing.
   """
   def setup_mocks do
-    # Set mocks to global mode to allow calls from any process
-    Mox.set_mox_global()
+    # Try to set global mode, catch any errors if already set
+    try do
+      Mox.set_mox_global()
+    catch
+      :error, _ ->
+        # Already in global mode or other error, that's fine
+        :ok
+    end
 
     setup_http_client_mocks()
     setup_esi_client_mocks()

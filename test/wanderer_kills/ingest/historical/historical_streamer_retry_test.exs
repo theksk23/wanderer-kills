@@ -28,6 +28,15 @@ defmodule WandererKills.Ingest.Historical.HistoricalStreamerRetryTest do
   end
 
   setup do
+    # Ensure TaskSupervisor is running
+    case Process.whereis(WandererKills.TaskSupervisor) do
+      nil ->
+        start_supervised!({Task.Supervisor, name: WandererKills.TaskSupervisor})
+
+      _pid ->
+        :ok
+    end
+
     # Set up mox for cross-process calls
     set_mox_global()
 
