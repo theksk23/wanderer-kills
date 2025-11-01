@@ -145,13 +145,24 @@ defmodule WandererKills.TestHelpers do
       try do
         Mox.set_mox_global()
       rescue
-        error in [RuntimeError, ArgumentError] ->
+        error in [RuntimeError] ->
           # Only catch the specific "already in global mode" error
-          if error.message =~ ~r/already (in|set to) global mode/i do
-            :ok
-          else
-            # Re-raise any other errors
-            reraise error, __STACKTRACE__
+          # Mox raises a RuntimeError with this specific message
+          case error.message do
+            "Mox is already in global mode" ->
+              :ok
+
+            message when is_binary(message) ->
+              if message =~ ~r/already (in|set to) global mode/i do
+                :ok
+              else
+                # Re-raise any other RuntimeError
+                reraise error, __STACKTRACE__
+              end
+
+            _ ->
+              # Re-raise any other RuntimeError
+              reraise error, __STACKTRACE__
           end
       end
     end
