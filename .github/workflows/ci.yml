@@ -613,7 +613,7 @@ jobs:
             ```bash
             docker pull ${{ env.REGISTRY_IMAGE }}:${{ steps.get_version.outputs.VERSION }}
             ```
-          draft: false
+          draft: true
           prerelease: false
 
   deploy:
