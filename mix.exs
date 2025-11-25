@@ -1,10 +1,12 @@
 defmodule WandererKills.MixProject do
   use Mix.Project
 
+  @version "1.5.8"
+
   def project do
     [
       app: :wanderer_kills,
-      version: "1.5.7",
+      version: @version,
       elixir: "~> 1.17",
       start_permanent: Mix.env() == :prod,
       compilers: Mix.compilers() ++ [:boundary],
