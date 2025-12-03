@@ -23,11 +23,11 @@ defmodule WandererKillsWeb.PageHTML do
     </head>
     <body>
       <div class="container">
-#{header_section(data)}
-#{stats_section(data)}
-#{health_section(data)}
-#{endpoints_section()}
-#{footer_section(data)}
+    #{header_section(data)}
+    #{stats_section(data)}
+    #{health_section(data)}
+    #{endpoints_section()}
+    #{footer_section(data)}
       </div>
     </body>
     </html>
@@ -88,13 +88,13 @@ defmodule WandererKillsWeb.PageHTML do
 
     """
     <div class="health-grid">
-#{application_health_card(health)}
-#{cache_health_card(health, status)}
-#{system_performance_card(status)}
-#{message_delivery_card(websocket_stats, status)}
-#{ets_storage_card(ets_stats)}
-#{redisq_pipeline_card(redisq_stats)}
-#{historical_card}
+    #{application_health_card(health)}
+    #{cache_health_card(health, status)}
+    #{system_performance_card(status)}
+    #{message_delivery_card(websocket_stats, status)}
+    #{ets_storage_card(ets_stats)}
+    #{redisq_pipeline_card(redisq_stats)}
+    #{historical_card}
     </div>
     """
   end
@@ -105,7 +105,7 @@ defmodule WandererKillsWeb.PageHTML do
       <div class="health-header">
         <h3 class="health-title">Application Health</h3>
         <span class="health-status #{health_status_class(Utils.safe_get(health, [:application, :status], "healthy"))}">
-#{health_status_icon(Utils.safe_get(health, [:application, :status], "healthy"))} #{String.capitalize(normalize_status(Utils.safe_get(health, [:application, :status], "healthy")))}
+    #{health_status_icon(Utils.safe_get(health, [:application, :status], "healthy"))} #{String.capitalize(normalize_status(Utils.safe_get(health, [:application, :status], "healthy")))}
         </span>
       </div>
       <div class="metrics">
@@ -132,7 +132,7 @@ defmodule WandererKillsWeb.PageHTML do
       <div class="health-header">
         <h3 class="health-title">Cache Performance</h3>
         <span class="health-status #{health_status_class(Utils.safe_get(health, [:cache, :status], "healthy"))}">
-#{health_status_icon(Utils.safe_get(health, [:cache, :status], "healthy"))} #{String.capitalize(normalize_status(Utils.safe_get(health, [:cache, :status], "healthy")))}
+    #{health_status_icon(Utils.safe_get(health, [:cache, :status], "healthy"))} #{String.capitalize(normalize_status(Utils.safe_get(health, [:cache, :status], "healthy")))}
         </span>
       </div>
       <div class="metrics">

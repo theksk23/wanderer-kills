@@ -452,13 +452,18 @@ defmodule WandererKills.Http.Client do
     do_finch_request_with_retry(request, finch_name, options, 0)
   end
 
-  defp do_finch_request_with_retry(request, finch_name, options, retry_count) when retry_count < 3 do
+  defp do_finch_request_with_retry(request, finch_name, options, retry_count)
+       when retry_count < 3 do
     Finch.request(request, finch_name, options)
   rescue
     error ->
       if is_process_unavailable_error?(error) and retry_count < 2 do
         delay_ms = 100 * (retry_count + 1)
-        Logger.warning("[HTTP] Finch temporarily unavailable, retrying in #{delay_ms}ms (attempt #{retry_count + 1}/2)")
+
+        Logger.warning(
+          "[HTTP] Finch temporarily unavailable, retrying in #{delay_ms}ms (attempt #{retry_count + 1}/2)"
+        )
+
         Process.sleep(delay_ms)
         do_finch_request_with_retry(request, finch_name, options, retry_count + 1)
       else
