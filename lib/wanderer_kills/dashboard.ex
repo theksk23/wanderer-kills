@@ -48,10 +48,8 @@ defmodule WandererKills.Dashboard do
   """
   @spec get_dashboard_data() :: {:ok, map()} | {:error, String.t()}
   def get_dashboard_data do
-    # Gather all status information
     status = Monitoring.get_unified_status()
 
-    # Application metrics from unified status
     memory_bytes = get_in(status, [:system, :memory, :total]) || 0
     memory_mb = if memory_bytes > 0, do: Float.round(memory_bytes / 1024 / 1024, 2), else: 0.0
     process_count = get_in(status, [:system, :processes, :count]) || 0
@@ -66,7 +64,6 @@ defmodule WandererKills.Dashboard do
       }
     }
 
-    # Cache metrics from direct calls
     cache_stats = Cache.stats()
     cache_size = Cache.size()
 
@@ -89,14 +86,9 @@ defmodule WandererKills.Dashboard do
       "[DASHBOARD FINAL] App memory: #{memory_mb} MB, processes: #{process_count}, cache size: #{cache_size}"
     )
 
-    # Get websocket stats from unified status
     raw_websocket_stats = Utils.safe_get(status, [:websocket], %{})
-
-    # The websocket stats already have the nested structure we need
-    # Just pass them through as-is
     websocket_stats = raw_websocket_stats
 
-    # Get uptime and version safely
     uptime = format_uptime(Utils.safe_get(status, [:system, :uptime_seconds], 0))
 
     version =
@@ -105,13 +97,8 @@ defmodule WandererKills.Dashboard do
         vsn -> to_string(vsn)
       end
 
-    # Get ETS storage statistics
     ets_stats = get_ets_stats()
-
-    # Get RedisQ processing statistics
     redisq_stats = get_redisq_stats(status)
-
-    # Get historical streaming statistics
     historical_stats = get_historical_streaming_stats()
 
     data = %{
@@ -132,12 +119,6 @@ defmodule WandererKills.Dashboard do
       {:error, "Failed to gather dashboard data"}
   end
 
-  # Private helper functions
-
-  # OLD extract_health_data REMOVED - should not be called anymore
-
-  # OLD extract_component_metrics REMOVED - now using direct extraction in main function
-
   defp calculate_hit_rate(stats) when is_map(stats) do
     # Handle different possible formats
     hits = stats[:hits] || stats["hits"] || 0
@@ -157,7 +138,6 @@ defmodule WandererKills.Dashboard do
     run_queue = :erlang.statistics(:run_queue)
     schedulers = :erlang.system_info(:schedulers)
 
-    # Calculate as percentage of run queue vs available schedulers
     usage = run_queue / schedulers * 100
     Float.round(min(usage, 100.0), 1)
   rescue
@@ -177,8 +157,6 @@ defmodule WandererKills.Dashboard do
   end
 
   defp format_uptime(_), do: "N/A"
-
-  # default_health_status REMOVED - no longer needed with direct extraction
 
   defp get_ets_stats do
     Enum.map(@ets_tables, fn {table, icon, name} ->
@@ -214,7 +192,6 @@ defmodule WandererKills.Dashboard do
   end
 
   defp get_redisq_stats(status) do
-    # Extract RedisQ metrics from the :processing section
     total_processed = Utils.safe_get(status, [:processing, :redisq_received], 0)
 
     last_killmail_ago =
@@ -222,17 +199,13 @@ defmodule WandererKills.Dashboard do
 
     processing_lag = Utils.safe_get(status, [:processing, :processing_lag_seconds], 0)
 
-    # Calculate processing rate using window-based statistics
     processing_rate = calculate_current_processing_rate(status)
-
-    # Format last processed time
     last_processed = format_last_processed_time(last_killmail_ago)
 
     %{
       total_processed: total_processed,
       processing_rate: processing_rate,
       last_processed: last_processed,
-      # Convert seconds to milliseconds
       queue_lag: round(processing_lag * 1000),
       status: if(total_processed > 0, do: "active", else: "idle")
     }
@@ -242,12 +215,10 @@ defmodule WandererKills.Dashboard do
     # Get the raw RedisQ stats from ETS for more accurate rate calculation
     case :ets.info(EtsOwner.wanderer_kills_stats_table()) do
       :undefined ->
-        # If ETS table is not available, fall back to simple calculation
         total = Utils.safe_get(status, [:processing, :redisq_received], 0)
         calculate_simple_rate_from_total(total)
 
       _ ->
-        # Try to get the raw stats with window information
         calculate_rate_from_ets_stats(status)
     end
   end
@@ -258,7 +229,6 @@ defmodule WandererKills.Dashboard do
         calculate_rate_from_window_stats(stats)
 
       _ ->
-        # No stats available, use simple calculation
         total = Utils.safe_get(status, [:processing, :redisq_received], 0)
         calculate_simple_rate_from_total(total)
     end
@@ -270,22 +240,17 @@ defmodule WandererKills.Dashboard do
     window_kills = Map.get(stats, :kills_received, 0)
     last_reset = Map.get(stats, :last_reset, DateTime.utc_now())
 
-    # Calculate seconds since last reset
     seconds_elapsed = DateTime.diff(DateTime.utc_now(), last_reset, :second)
 
     if seconds_elapsed > 0 and seconds_elapsed <= @redisq_window_staleness_seconds do
-      # If we have a valid window (not stale), calculate rate
-      # Normalize to per-minute rate
       round(window_kills * 60 / seconds_elapsed)
     else
-      # Fall back to simple calculation if window is stale
       total = Map.get(stats, :total_kills_received, 0)
       calculate_simple_rate_from_total(total)
     end
   end
 
   defp calculate_simple_rate_from_total(total_processed) do
-    # Fallback: Simple average since startup
     uptime_minutes = max(1, div(uptime_seconds(), 60))
     round(total_processed / uptime_minutes)
   end

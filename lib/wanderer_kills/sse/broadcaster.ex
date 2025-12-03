@@ -10,11 +10,9 @@ defmodule WandererKills.SSE.Broadcaster do
 
   @pubsub_name WandererKills.PubSub
 
-  # Event type constants
   @event_type_killmail "killmail"
   @event_type_test "test"
 
-  # Private helper to emit telemetry events
   defp emit_telemetry(topic, event_type, prefix \\ "broadcast") do
     connection_id =
       "#{prefix}_#{String.replace(topic, ":", "_")}_#{System.system_time(:millisecond)}"
@@ -30,7 +28,6 @@ defmodule WandererKills.SSE.Broadcaster do
   """
   @spec broadcast_killmail(String.t(), map()) :: :ok | {:error, term()}
   def broadcast_killmail(topic, killmail_map) when is_map(killmail_map) do
-    # Convert the killmail map to JSON string for SSE
     case Jason.encode(killmail_map) do
       {:ok, json_data} ->
         # SSE library expects {pubsub_name, data} format
@@ -38,7 +35,6 @@ defmodule WandererKills.SSE.Broadcaster do
 
         result = Phoenix.PubSub.broadcast(@pubsub_name, topic, message)
 
-        # Track SSE event sent
         emit_telemetry(topic, @event_type_killmail)
 
         result
@@ -94,7 +90,6 @@ defmodule WandererKills.SSE.Broadcaster do
         message = {@pubsub_name, json_data}
         result = Phoenix.PubSub.broadcast(@pubsub_name, topic, message)
 
-        # Track SSE test event sent
         emit_telemetry(topic, @event_type_test, "test_broadcast")
 
         Logger.debug("SSE test message sent", topic: topic)

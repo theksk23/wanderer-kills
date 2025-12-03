@@ -13,11 +13,9 @@ defmodule WandererKills.Debug.ConnectionCleanup do
   def cleanup_dead_connections do
     Logger.info("[ConnectionCleanup] Starting WebSocket connection cleanup")
 
-    # Get all subscriptions
     subscriptions = SubscriptionManager.list_subscriptions()
     websocket_subs = Enum.filter(subscriptions, &(&1["socket_pid"] != nil))
 
-    # Find and remove dead subscriptions
     dead_count =
       Enum.reduce(websocket_subs, 0, fn sub, acc ->
         socket_pid = sub["socket_pid"]
@@ -45,7 +43,6 @@ defmodule WandererKills.Debug.ConnectionCleanup do
 
     Logger.info("[ConnectionCleanup] Removed #{dead_count} dead subscriptions")
 
-    # Reset WebSocket stats to match reality
     reset_connection_stats()
 
     {:ok, %{dead_subscriptions_removed: dead_count}}
@@ -55,19 +52,13 @@ defmodule WandererKills.Debug.ConnectionCleanup do
   Reset WebSocket connection statistics to match actual state
   """
   def reset_connection_stats do
-    # Count actual alive WebSocket connections
     alive_count = length(get_alive_websocket_pids())
-
-    # Get current stats
     {:ok, current_stats} = Metrics.get_websocket_stats()
-
-    # Calculate the correction needed
     correction = current_stats.connections.active - alive_count
 
     if correction > 0 do
       Logger.info("[ConnectionCleanup] Correcting connection count by -#{correction}")
 
-      # Send disconnection events to correct the count
       Enum.each(1..correction, fn _ ->
         Metrics.track_websocket_connection(:disconnected, %{reason: :cleanup})
       end)
@@ -88,13 +79,9 @@ defmodule WandererKills.Debug.ConnectionCleanup do
   def cleanup_orphaned_channels do
     Logger.info("[ConnectionCleanup] Starting orphaned channel cleanup")
 
-    # Get all channel processes
     channel_processes = find_channel_processes()
-
-    # Get all alive socket PIDs from subscriptions
     alive_sockets = MapSet.new(get_alive_websocket_pids())
 
-    # Kill channels not in alive_sockets
     killed_count =
       Enum.reduce(channel_processes, 0, fn pid, acc ->
         try do
@@ -105,11 +92,9 @@ defmodule WandererKills.Debug.ConnectionCleanup do
               "[ConnectionCleanup] Shutting down orphaned channel process: #{inspect(pid)}"
             )
 
-            # First try graceful shutdown
             Process.exit(pid, :shutdown)
             Process.sleep(50)
 
-            # If still alive, force kill
             if Process.alive?(pid) do
               Logger.warning(
                 "[ConnectionCleanup] Process didn't respond to shutdown, forcing: #{inspect(pid)}"
@@ -141,13 +126,8 @@ defmodule WandererKills.Debug.ConnectionCleanup do
   def full_cleanup do
     Logger.info("[ConnectionCleanup] Starting full connection cleanup")
 
-    # Step 1: Clean dead subscriptions
     {:ok, dead_result} = cleanup_dead_connections()
-
-    # Step 2: Clean orphaned channels
     {:ok, orphan_result} = cleanup_orphaned_channels()
-
-    # Step 3: Force garbage collection
     :erlang.garbage_collect()
 
     result = Map.merge(dead_result, orphan_result)

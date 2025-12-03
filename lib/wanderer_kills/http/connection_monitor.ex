@@ -18,12 +18,10 @@ defmodule WandererKills.Http.ConnectionMonitor do
   use GenServer
   require Logger
 
-  # Read configuration at compile time
   @config Application.compile_env(:wanderer_kills, :http_connection_monitor, %{
             check_interval_ms: 60_000
           })
   @check_interval_ms @config[:check_interval_ms] || 60_000
-  # Number of consecutive errors before action
   @error_threshold 5
 
   defmodule State do
@@ -87,7 +85,6 @@ defmodule WandererKills.Http.ConnectionMonitor do
   def init(_opts) do
     Logger.info("[ConnectionMonitor] Starting HTTP connection monitor")
 
-    # Schedule periodic health checks
     schedule_check()
 
     state = %State{
@@ -122,7 +119,6 @@ defmodule WandererKills.Http.ConnectionMonitor do
         total_timeouts: new_total
     }
 
-    # Check if we need to take action
     if new_consecutive >= @error_threshold do
       Logger.error(
         "[ConnectionMonitor] Error threshold reached, recycling connections",
@@ -147,7 +143,6 @@ defmodule WandererKills.Http.ConnectionMonitor do
     new_consecutive = state.consecutive_connection_failures + 1
     new_total = state.total_connection_failures + 1
 
-    # Update per-reason counter
     new_failure_reasons = Map.update(state.failure_reasons, reason, 1, &(&1 + 1))
 
     Logger.warning(
@@ -165,7 +160,6 @@ defmodule WandererKills.Http.ConnectionMonitor do
         failure_reasons: new_failure_reasons
     }
 
-    # Check if we need to take action
     if new_consecutive >= @error_threshold do
       Logger.error(
         "[ConnectionMonitor] Connection failure threshold reached, recycling connections",
@@ -187,7 +181,6 @@ defmodule WandererKills.Http.ConnectionMonitor do
 
   @impl true
   def handle_cast({:success, _url}, state) do
-    # Reset consecutive errors on success
     new_state = %State{
       state
       | consecutive_timeout_errors: 0,
@@ -204,10 +197,8 @@ defmodule WandererKills.Http.ConnectionMonitor do
     time_since_success = current_time - state.last_successful_request
     time_since_recycled = current_time - state.last_recycled_at
 
-    # Use configured recycle interval
     recycle_interval = @recycle_interval_seconds
 
-    # Check if we haven't had a successful request in a while
     if time_since_success > @stale_connection_threshold_seconds do
       Logger.warning(
         "[ConnectionMonitor] No successful requests in #{time_since_success} seconds",
@@ -215,7 +206,6 @@ defmodule WandererKills.Http.ConnectionMonitor do
       )
     end
 
-    # Check if it's time for proactive recycling
     new_state =
       if time_since_recycled >= recycle_interval do
         Logger.info(
@@ -237,7 +227,6 @@ defmodule WandererKills.Http.ConnectionMonitor do
         state
       end
 
-    # Schedule next check
     schedule_check()
 
     {:noreply, new_state}
@@ -280,104 +269,45 @@ defmodule WandererKills.Http.ConnectionMonitor do
     {:reply, :ok, new_state}
   end
 
-  # Private functions
-
   defp schedule_check do
     Process.send_after(self(), :check_health, @check_interval_ms)
   end
 
   defp recycle_connection_pool do
-    # Emit telemetry event for recycling
     :telemetry.execute(
       [:wanderer_kills, :connection_monitor, :recycle],
       %{count: 1, conn_max_idle_time: @conn_max_idle_time},
       %{reason: :proactive}
     )
 
-    # Approach: Create a new Finch instance and atomically swap
-    case perform_finch_swap() do
-      :ok ->
-        Logger.info(
-          "[ConnectionMonitor] Connection pool recycled successfully",
-          conn_max_idle_time: @conn_max_idle_time,
-          method: :finch_swap
-        )
+    perform_finch_swap()
 
-      {:error, reason} ->
-        Logger.error(
-          "[ConnectionMonitor] Failed to recycle connection pool: #{inspect(reason)}",
-          conn_max_idle_time: 90_000
-        )
+    Logger.info(
+      "[ConnectionMonitor] Connection pool health check completed",
+      conn_max_idle_time: @conn_max_idle_time,
+      method: :finch_builtin_idle_timeout
+    )
 
-        # Emit telemetry event for monitoring
-        :telemetry.execute(
-          [:wanderer_kills, :http, :connection_recycled],
-          %{count: 1},
-          %{}
-        )
-    end
+    :telemetry.execute(
+      [:wanderer_kills, :http, :connection_recycled],
+      %{count: 1},
+      %{}
+    )
   end
 
   defp perform_finch_swap do
-    # Instead of trying to swap process names, we'll restart Finch through its supervisor
-    # Find the Finch child spec in the application supervisor
-    case find_and_restart_finch() do
-      :ok ->
-        Logger.info("[ConnectionMonitor] Successfully recycled Finch connections")
-        :ok
+    # Finch 0.20.0 has built-in connection recycling via conn_max_idle_time
+    # Restarting the entire Finch process is too aggressive and causes race conditions
+    # where requests fail during the restart window.
+    #
+    # Instead, we'll just log that recycling would happen and rely on Finch's
+    # built-in idle connection management (configured with conn_max_idle_time: 90_000)
+    Logger.info(
+      "[ConnectionMonitor] Connection recycling delegated to Finch's built-in idle timeout",
+      conn_max_idle_time: @conn_max_idle_time,
+      note: "Finch automatically closes idle connections after #{@conn_max_idle_time}ms"
+    )
 
-      {:error, reason} ->
-        Logger.error(
-          "[ConnectionMonitor] Failed to recycle Finch connections: #{inspect(reason)}"
-        )
-
-        {:error, reason}
-    end
-  end
-
-  defp find_and_restart_finch do
-    # Get the main application supervisor
-    case Process.whereis(WandererKills.Supervisor) do
-      nil ->
-        {:error, :supervisor_not_found}
-
-      supervisor_pid ->
-        restart_finch_child(supervisor_pid)
-    end
-  end
-
-  defp restart_finch_child(supervisor_pid) do
-    # Get all children
-    children = Supervisor.which_children(supervisor_pid)
-
-    # Find the Finch child
-    case Enum.find(children, fn {id, _pid, _type, _modules} ->
-           id == Finch or id == WandererKills.Finch
-         end) do
-      nil ->
-        {:error, :finch_not_found}
-
-      {child_id, _pid, _type, _modules} ->
-        # Restart the Finch child
-        restart_child(supervisor_pid, child_id)
-    end
-  end
-
-  defp restart_child(supervisor_pid, child_id) do
-    # First terminate the child, then restart it
-    with :ok <- Supervisor.terminate_child(supervisor_pid, child_id),
-         {:ok, _} <- Supervisor.restart_child(supervisor_pid, child_id) do
-      :ok
-    else
-      {:error, :not_found} ->
-        # Child might have already been terminated, try to restart anyway
-        case Supervisor.restart_child(supervisor_pid, child_id) do
-          {:ok, _} -> :ok
-          error -> error
-        end
-
-      error ->
-        error
-    end
+    :ok
   end
 end

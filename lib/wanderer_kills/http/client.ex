@@ -48,7 +48,6 @@ defmodule WandererKills.Http.Client do
   """
   @spec get(url, headers, options) :: response
   def get(url, headers \\ [], options \\ []) do
-    # Check if we should use rate limiting
     if should_rate_limit?(url) and
          Application.get_env(:wanderer_kills, :features)[:smart_rate_limiting] do
       get_with_rate_limit(url, headers, options)
@@ -63,13 +62,10 @@ defmodule WandererKills.Http.Client do
   @spec get_with_rate_limit(url, headers, options) :: response
   def get_with_rate_limit(url, headers \\ [], options \\ []) do
     if Application.get_env(:wanderer_kills, :features)[:smart_rate_limiting] do
-      # Use the reservation system for rate limiting
       case SmartRateLimiter.reserve_token(url) do
         {:ok, reservation_id} ->
-          # Perform the request
           result = do_get(url, headers, options)
 
-          # Report the result to consume appropriate tokens
           status_code = extract_status_from_result(result)
           SmartRateLimiter.report_request_result(reservation_id, status_code, url)
 
@@ -79,7 +75,6 @@ defmodule WandererKills.Http.Client do
           {:error, error}
       end
     else
-      # Rate limiting disabled, proceed directly
       do_get(url, headers, options)
     end
   end
@@ -89,7 +84,6 @@ defmodule WandererKills.Http.Client do
   """
   @spec post(url, body :: term(), headers, options) :: response
   def post(url, body, headers \\ [], options \\ []) do
-    # Add content-type header if not present
     headers = ensure_content_type(headers)
     do_post(url, body, headers, options)
   end
@@ -140,13 +134,8 @@ defmodule WandererKills.Http.Client do
     timeout = Keyword.get(options, :timeout, @default_timeout_ms)
     headers = build_headers(headers)
 
-    # Build Finch request
     request = Finch.build(:get, url, headers)
-
-    # Get the Finch instance to use
     finch_name = get_finch_name()
-
-    # Perform the request
     start_time = System.monotonic_time(:millisecond)
 
     result =
@@ -154,10 +143,8 @@ defmodule WandererKills.Http.Client do
       |> do_finch_request(finch_name, receive_timeout: timeout)
       |> handle_finch_response(url, start_time, headers, options, redirect_count)
 
-    # Emit telemetry
     emit_telemetry(url, start_time, result)
 
-    # Report to connection monitor
     case result do
       {:ok, _} -> ConnectionMonitor.report_success(url)
       _ -> :ok
@@ -172,20 +159,14 @@ defmodule WandererKills.Http.Client do
     timeout = Keyword.get(options, :timeout, @default_timeout_ms)
     headers = build_headers(headers)
 
-    # Encode body as JSON if it's not already a string
     encoded_body =
       case body do
         body when is_binary(body) -> body
         _ -> Jason.encode!(body)
       end
 
-    # Build Finch request
     request = Finch.build(:post, url, headers, encoded_body)
-
-    # Get the Finch instance to use
     finch_name = get_finch_name()
-
-    # Perform the request
     start_time = System.monotonic_time(:millisecond)
 
     result =
@@ -194,7 +175,6 @@ defmodule WandererKills.Http.Client do
           elapsed = System.monotonic_time(:millisecond) - start_time
           Logger.debug("[HTTP] Response #{status} in #{elapsed}ms")
 
-          # Parse JSON if content-type indicates it
           parsed_body = maybe_parse_json(resp_body, resp_headers)
 
           handle_response(status, parsed_body, resp_headers)
@@ -206,10 +186,8 @@ defmodule WandererKills.Http.Client do
            Error.http_error(:request_failed, "POST request failed: #{inspect(reason)}", false)}
       end
 
-    # Emit telemetry
     emit_telemetry(url, start_time, result)
 
-    # Report to connection monitor
     case result do
       {:ok, _} -> ConnectionMonitor.report_success(url)
       _ -> :ok
@@ -223,43 +201,32 @@ defmodule WandererKills.Http.Client do
   # ============================================================================
 
   defp get_finch_name do
-    # Always use WandererKills.Finch
     WandererKills.Finch
   end
 
   defp should_rate_limit?(url) do
-    # Rate limit external APIs (ESI, zKillboard)
     String.contains?(url, "esi.evetech.net") or
       String.contains?(url, "zkillboard.com") or
       String.contains?(url, "zkillredisq.stream")
   end
 
   defp build_headers(headers) do
-    # Add default headers
     default_headers = [
       {"user-agent", @user_agent},
       {"accept", "application/json"}
     ]
 
-    # Merge with provided headers (provided headers take precedence)
     Enum.uniq_by(headers ++ default_headers, fn {key, _} -> String.downcase(key) end)
   end
 
   defp resolve_redirect_url(original_url, location) do
-    # If the location is already an absolute URL, return it as-is
     case URI.parse(location) do
       %URI{scheme: scheme} when not is_nil(scheme) ->
-        # Already absolute URL
         location
 
       _ ->
-        # Relative URL - resolve against original URL
         original_uri = URI.parse(original_url)
-
-        # Parse the relative location
         location_uri = URI.parse(location)
-
-        # Merge with original URL, preserving the original host/scheme
         merged = URI.merge(original_uri, location_uri)
         URI.to_string(merged)
     end
@@ -276,12 +243,10 @@ defmodule WandererKills.Http.Client do
     elapsed = System.monotonic_time(:millisecond) - start_time
     Logger.debug("[HTTP] Response #{status} in #{elapsed}ms")
 
-    # Parse JSON if content-type indicates it
     parsed_body = maybe_parse_json(body, resp_headers)
 
     case handle_response(status, parsed_body, resp_headers) do
       {:redirect, location} ->
-        # Resolve relative URLs against the current URL
         resolved_location = resolve_redirect_url(url, location)
         do_get_with_redirects(resolved_location, headers, options, redirect_count + 1)
 
@@ -302,13 +267,11 @@ defmodule WandererKills.Http.Client do
   end
 
   defp handle_request_error(%{reason: :timeout}, url) do
-    # Report timeout to connection monitor
     ConnectionMonitor.report_timeout(url)
     {:error, Error.http_error(:timeout, "Request to #{url} timed out", true)}
   end
 
   defp handle_request_error(%{reason: :econnrefused}, url) do
-    # Report connection failure to connection monitor
     ConnectionMonitor.report_failure(url, :connection_refused)
     {:error, Error.http_error(:connection_failed, "Connection refused for #{url}", true)}
   end
@@ -371,20 +334,16 @@ defmodule WandererKills.Http.Client do
   end
 
   defp handle_response(429, body, headers) do
-    # Extract retry-after header if present (prefer retry-after over x-esi-error-limit-reset)
     headers_map = Map.new(headers, fn {k, v} -> {String.downcase(k), v} end)
 
     retry_after_ms =
       cond do
-        # First check for standard Retry-After header
         Map.has_key?(headers_map, "retry-after") ->
           parse_retry_after(headers_map["retry-after"])
 
-        # Then check for ESI-specific reset header
         Map.has_key?(headers_map, "x-esi-error-limit-reset") ->
           parse_retry_after(headers_map["x-esi-error-limit-reset"])
 
-        # Fall back to nil if neither header is present
         true ->
           nil
       end
@@ -416,7 +375,6 @@ defmodule WandererKills.Http.Client do
   end
 
   defp handle_response(status, _body, headers) when status in [301, 302, 303, 307, 308] do
-    # Handle redirect by returning the Location header
     location =
       Enum.find_value(headers, fn
         {key, value} when is_binary(key) ->
@@ -478,14 +436,11 @@ defmodule WandererKills.Http.Client do
   defp extract_status_from_result(_), do: 0
 
   defp parse_retry_after(value) when is_binary(value) do
-    # Try to parse as integer seconds
     case Integer.parse(value) do
       {seconds, _} ->
         seconds * 1000
 
       _ ->
-        # Try to parse as HTTP date
-        # For now, default to 5 seconds
         5000
     end
   end
@@ -493,8 +448,33 @@ defmodule WandererKills.Http.Client do
   defp parse_retry_after(value) when is_integer(value), do: value * 1000
   defp parse_retry_after(_), do: 5000
 
-  # Helper to make Finch requests
   defp do_finch_request(request, finch_name, options) do
-    Finch.request(request, finch_name, options)
+    do_finch_request_with_retry(request, finch_name, options, 0)
   end
+
+  defp do_finch_request_with_retry(request, finch_name, options, retry_count) when retry_count < 3 do
+    Finch.request(request, finch_name, options)
+  rescue
+    error ->
+      if is_process_unavailable_error?(error) and retry_count < 2 do
+        delay_ms = 100 * (retry_count + 1)
+        Logger.warning("[HTTP] Finch temporarily unavailable, retrying in #{delay_ms}ms (attempt #{retry_count + 1}/2)")
+        Process.sleep(delay_ms)
+        do_finch_request_with_retry(request, finch_name, options, retry_count + 1)
+      else
+        reraise error, __STACKTRACE__
+      end
+  end
+
+  defp do_finch_request_with_retry(_request, _finch_name, _options, _retry_count) do
+    {:error, :max_retries_exceeded}
+  end
+
+  defp is_process_unavailable_error?(%{message: message}) when is_binary(message) do
+    String.contains?(message, "no process") or
+      String.contains?(message, "not alive") or
+      String.contains?(message, "application isn't started")
+  end
+
+  defp is_process_unavailable_error?(_), do: false
 end
