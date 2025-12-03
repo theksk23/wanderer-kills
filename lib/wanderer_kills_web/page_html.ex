@@ -23,11 +23,11 @@ defmodule WandererKillsWeb.PageHTML do
     </head>
     <body>
       <div class="container">
-        #{header_section(data)}
-        #{stats_section(data)}
-        #{health_section(data)}
-        #{endpoints_section()}
-        #{footer_section(data)}
+    #{header_section(data)}
+    #{stats_section(data)}
+    #{health_section(data)}
+    #{endpoints_section()}
+    #{footer_section(data)}
       </div>
     </body>
     </html>
@@ -79,7 +79,6 @@ defmodule WandererKillsWeb.PageHTML do
          redisq_stats: redisq_stats,
          historical_stats: historical_stats
        }) do
-    # Only include historical streaming card if enabled
     historical_card =
       if historical_stats.enabled do
         historical_streaming_card(historical_stats)
@@ -89,13 +88,13 @@ defmodule WandererKillsWeb.PageHTML do
 
     """
     <div class="health-grid">
-      #{application_health_card(health)}
-      #{cache_health_card(health, status)}
-      #{system_performance_card(status)}
-      #{message_delivery_card(websocket_stats, status)}
-      #{ets_storage_card(ets_stats)}
-      #{redisq_pipeline_card(redisq_stats)}
-      #{historical_card}
+    #{application_health_card(health)}
+    #{cache_health_card(health, status)}
+    #{system_performance_card(status)}
+    #{message_delivery_card(websocket_stats, status)}
+    #{ets_storage_card(ets_stats)}
+    #{redisq_pipeline_card(redisq_stats)}
+    #{historical_card}
     </div>
     """
   end
@@ -106,7 +105,7 @@ defmodule WandererKillsWeb.PageHTML do
       <div class="health-header">
         <h3 class="health-title">Application Health</h3>
         <span class="health-status #{health_status_class(Utils.safe_get(health, [:application, :status], "healthy"))}">
-          #{health_status_icon(Utils.safe_get(health, [:application, :status], "healthy"))} #{String.capitalize(normalize_status(Utils.safe_get(health, [:application, :status], "healthy")))}
+    #{health_status_icon(Utils.safe_get(health, [:application, :status], "healthy"))} #{String.capitalize(normalize_status(Utils.safe_get(health, [:application, :status], "healthy")))}
         </span>
       </div>
       <div class="metrics">
@@ -133,7 +132,7 @@ defmodule WandererKillsWeb.PageHTML do
       <div class="health-header">
         <h3 class="health-title">Cache Performance</h3>
         <span class="health-status #{health_status_class(Utils.safe_get(health, [:cache, :status], "healthy"))}">
-          #{health_status_icon(Utils.safe_get(health, [:cache, :status], "healthy"))} #{String.capitalize(normalize_status(Utils.safe_get(health, [:cache, :status], "healthy")))}
+    #{health_status_icon(Utils.safe_get(health, [:cache, :status], "healthy"))} #{String.capitalize(normalize_status(Utils.safe_get(health, [:cache, :status], "healthy")))}
         </span>
       </div>
       <div class="metrics">
@@ -155,11 +154,9 @@ defmodule WandererKillsWeb.PageHTML do
   end
 
   defp system_performance_card(status) do
-    # Calculate system performance metrics from available data
     zkb_stats = Utils.safe_get(status, [:api, :zkillboard], %{})
     esi_stats = Utils.safe_get(status, [:api, :esi], %{})
 
-    # Combine stats from both APIs
     total_api_requests =
       Utils.safe_get(zkb_stats, [:total_requests], 0) +
         Utils.safe_get(esi_stats, [:total_requests], 0)
@@ -179,7 +176,6 @@ defmodule WandererKillsWeb.PageHTML do
         Utils.safe_get(zkb_stats, [:avg_duration_ms], 0)
       )
 
-    # Calculate error rate
     error_rate =
       if total_api_requests > 0 do
         (api_error_count / total_api_requests * 100) |> Float.round(1)
@@ -388,8 +384,6 @@ defmodule WandererKillsWeb.PageHTML do
     """
   end
 
-  # Helper functions for formatting data
-
   defp format_number(nil), do: "0"
 
   defp format_number(num) when is_number(num) do
@@ -434,7 +428,6 @@ defmodule WandererKillsWeb.PageHTML do
   defp health_status_class(status) when status in ["unhealthy", :unhealthy, "error", :error],
     do: "danger"
 
-  # Default to healthy
   defp health_status_class(_), do: "success"
 
   defp health_status_icon(status) when status in ["healthy", :healthy, "ok", :ok], do: "✓"
@@ -445,7 +438,6 @@ defmodule WandererKillsWeb.PageHTML do
   defp health_status_icon(status) when status in ["unhealthy", :unhealthy, "error", :error],
     do: "✗"
 
-  # Default to healthy
   defp health_status_icon(_), do: "✓"
 
   defp normalize_status(status) when is_atom(status), do: Atom.to_string(status)
