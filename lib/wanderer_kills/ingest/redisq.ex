@@ -519,7 +519,12 @@ defmodule WandererKills.Ingest.RedisQ do
     Logger.debug("[RedisQ] Processing kill package",
       kill_id: id,
       queue_id: queue_id,
-      zkb_keys: Map.keys(zkb || %{})
+      zkb_keys: Map.keys(zkb || %{}),
+      has_dropped_value: Map.has_key?(zkb || %{}, "droppedValue"),
+      has_destroyed_value: Map.has_key?(zkb || %{}, "destroyedValue"),
+      total_value: Map.get(zkb, "totalValue"),
+      dropped_value: Map.get(zkb, "droppedValue"),
+      destroyed_value: Map.get(zkb, "destroyedValue")
     )
 
     task =

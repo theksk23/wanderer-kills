@@ -109,9 +109,15 @@ defmodule WandererKills.TestFactory do
       ],
       "zkb" => %{
         "totalValue" => 10_000_000.0,
+        "droppedValue" => 3_500_000.0,
+        "destroyedValue" => 6_500_000.0,
+        "fittedValue" => 7_000_000.0,
         "points" => 10,
         "npc" => false,
-        "hash" => "abcdef123456"
+        "hash" => "abcdef123456",
+        "locationID" => 40_000_001,
+        "solo" => false,
+        "awox" => false
       }
     }
 
