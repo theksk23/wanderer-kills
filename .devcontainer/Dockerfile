@@ -18,14 +18,14 @@ COPY . .
 FROM elixir:1.18.3-otp-27-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      bash vim nano git curl wget ca-certificates \
+      bash zsh vim nano git curl wget ca-certificates \
       build-essential make jq htop tree zip unzip \
       net-tools procps iputils-ping telnet \
     && curl -fsSL https://deb.nodesource.com/setup_23.x | bash - \
     && apt-get install -y nodejs \
     && npm install -g npm@latest @anthropic-ai/claude-code \
     && apt-get clean && rm -rf /var/lib/apt/lists/* \
-    && useradd -m vscode && mkdir /app && chown vscode:vscode /app
+    && useradd -m -s /usr/bin/zsh vscode && mkdir /app && chown vscode:vscode /app
 
 USER vscode
 WORKDIR /app
