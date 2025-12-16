@@ -17,8 +17,8 @@
         "dbaeumer.vscode-eslint"
       ],
       "settings": {
-        // 🐚 Use bash by default in the integrated terminal
-        "terminal.integrated.shell.linux": "/usr/bin/zsh",
+        // 🐚 Use zsh by default in the integrated terminal
+        "terminal.integrated.defaultProfile.linux": "zsh",
 
         // 🔧 Format on save across all languages
         "editor.formatOnSave": true,

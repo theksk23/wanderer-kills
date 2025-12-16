@@ -516,10 +516,17 @@ defmodule WandererKills.Ingest.RedisQ do
   #   {:ok, :kill_skipped}    if already ingested
   #   {:error, reason}        on failure
   defp process_kill_package(id, zkb, queue_id) do
+    safe_zkb = zkb || %{}
+
     Logger.debug("[RedisQ] Processing kill package",
       kill_id: id,
       queue_id: queue_id,
-      zkb_keys: Map.keys(zkb || %{})
+      zkb_keys: Map.keys(safe_zkb),
+      has_dropped_value: Map.has_key?(safe_zkb, "droppedValue"),
+      has_destroyed_value: Map.has_key?(safe_zkb, "destroyedValue"),
+      total_value: Map.get(safe_zkb, "totalValue"),
+      dropped_value: Map.get(safe_zkb, "droppedValue"),
+      destroyed_value: Map.get(safe_zkb, "destroyedValue")
     )
 
     task =

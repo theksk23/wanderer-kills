@@ -270,7 +270,14 @@ defmodule WandererKills.TestContexts do
       "zkb" => %{
         "locationID" => TestFactory.random_system_id(),
         "hash" => "test_hash_#{id}",
-        "totalValue" => 1_000_000
+        "totalValue" => 1_000_000,
+        "droppedValue" => 350_000,
+        "destroyedValue" => 650_000,
+        "fittedValue" => 700_000,
+        "points" => 10,
+        "npc" => false,
+        "solo" => false,
+        "awox" => false
       }
     }
 

@@ -208,12 +208,6 @@ defmodule WandererKills.Http.ConnectionMonitor do
 
     new_state =
       if time_since_recycled >= recycle_interval do
-        Logger.info(
-          "[ConnectionMonitor] Proactive connection recycling triggered",
-          time_since_recycled: time_since_recycled,
-          recycle_interval: recycle_interval
-        )
-
         recycle_connection_pool()
 
         %State{
@@ -282,12 +276,6 @@ defmodule WandererKills.Http.ConnectionMonitor do
 
     perform_finch_swap()
 
-    Logger.info(
-      "[ConnectionMonitor] Connection pool health check completed",
-      conn_max_idle_time: @conn_max_idle_time,
-      method: :finch_builtin_idle_timeout
-    )
-
     :telemetry.execute(
       [:wanderer_kills, :http, :connection_recycled],
       %{count: 1},
@@ -300,14 +288,8 @@ defmodule WandererKills.Http.ConnectionMonitor do
     # Restarting the entire Finch process is too aggressive and causes race conditions
     # where requests fail during the restart window.
     #
-    # Instead, we'll just log that recycling would happen and rely on Finch's
-    # built-in idle connection management (configured with conn_max_idle_time: 90_000)
-    Logger.info(
-      "[ConnectionMonitor] Connection recycling delegated to Finch's built-in idle timeout",
-      conn_max_idle_time: @conn_max_idle_time,
-      note: "Finch automatically closes idle connections after #{@conn_max_idle_time}ms"
-    )
-
+    # Instead, rely on Finch's built-in idle connection management
+    # (configured with conn_max_idle_time: 90_000)
     :ok
   end
 end

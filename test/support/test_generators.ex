@@ -132,7 +132,15 @@ defmodule WandererKills.TestGenerators do
           "ship_type_id" => ship_id
         },
         "zkb" => %{
-          "totalValue" => value
+          "totalValue" => value,
+          "droppedValue" => trunc(value * 0.35),
+          "destroyedValue" => trunc(value * 0.65),
+          "fittedValue" => trunc(value * 0.7),
+          "hash" => "test_hash_#{km_id}",
+          "points" => 10,
+          "npc" => false,
+          "solo" => false,
+          "awox" => false
         }
       }
     end

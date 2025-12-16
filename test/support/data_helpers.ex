@@ -259,9 +259,15 @@ defmodule WandererKills.Test.DataHelpers do
 
     zkb_data = %{
       "totalValue" => Keyword.get(opts, :total_value, 1_000_000),
+      "droppedValue" => Keyword.get(opts, :dropped_value, 350_000),
+      "destroyedValue" => Keyword.get(opts, :destroyed_value, 650_000),
+      "fittedValue" => Keyword.get(opts, :fitted_value, 700_000),
       "points" => Keyword.get(opts, :points, 1),
       "npc" => Keyword.get(opts, :npc, false),
-      "hash" => Keyword.get(opts, :hash, "abcdef123456")
+      "hash" => Keyword.get(opts, :hash, "abcdef123456"),
+      "locationID" => Keyword.get(opts, :location_id, 40_000_001),
+      "solo" => Keyword.get(opts, :solo, false),
+      "awox" => Keyword.get(opts, :awox, false)
     }
 
     Map.put(base_killmail, "zkb", zkb_data)
