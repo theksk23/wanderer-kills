@@ -534,26 +534,24 @@ defmodule WandererKills.Ingest.RedisQ do
         fetch_and_process_killmail(id, zkb)
       end)
 
-    task
-    |> Task.await(@task_timeout_ms)
-    |> case do
-      {:ok, :kill_received} ->
+    case Task.yield(task, @task_timeout_ms) do
+      {:ok, {:ok, :kill_received}} ->
         Logger.debug("[RedisQ] Successfully processed kill", kill_id: id)
         {:ok, :kill_received}
 
-      {:ok, :kill_older} ->
+      {:ok, {:ok, :kill_older}} ->
         Logger.debug("[RedisQ] Kill ID=#{id} is older than cutoff → skipping.")
         {:ok, :kill_older}
 
-      {:ok, :kill_skipped} ->
+      {:ok, {:ok, :kill_skipped}} ->
         Logger.debug("[RedisQ] Kill ID=#{id} already ingested → skipping.")
         {:ok, :kill_skipped}
 
-      {:error, reason} ->
+      {:ok, {:error, reason}} ->
         Logger.error("[RedisQ] Kill #{id} processing failed: #{inspect(reason)}")
         {:error, reason}
 
-      other ->
+      {:ok, other} ->
         Logger.error("[RedisQ] Unexpected task result for kill #{id}: #{inspect(other)}")
 
         {:error,
@@ -567,6 +565,11 @@ defmodule WandererKills.Ingest.RedisQ do
              queue_id: queue_id
            }
          )}
+
+      nil ->
+        Task.shutdown(task, :brutal_kill)
+        Logger.warning("[RedisQ] Kill #{id} processing timed out after #{@task_timeout_ms}ms")
+        {:error, :timeout}
     end
   end
 
