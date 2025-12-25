@@ -14,6 +14,7 @@ defmodule WandererKills.Ingest.RedisQ do
 
   alias WandererKills.Core.EtsOwner
   alias WandererKills.Core.Support.Error
+  alias WandererKills.Core.Support.SupervisedTask
   alias WandererKills.Core.Support.Utils
   alias WandererKills.Domain.Killmail
   alias WandererKills.Http.Client, as: HttpClient
@@ -529,12 +530,15 @@ defmodule WandererKills.Ingest.RedisQ do
       destroyed_value: Map.get(safe_zkb, "destroyedValue")
     )
 
-    task =
-      Task.Supervisor.async(WandererKills.TaskSupervisor, fn ->
-        fetch_and_process_killmail(id, zkb)
-      end)
+    result =
+      SupervisedTask.async(
+        fn -> fetch_and_process_killmail(id, zkb) end,
+        timeout: @task_timeout_ms,
+        task_name: "redisq_kill_processing",
+        metadata: %{kill_id: id, queue_id: queue_id}
+      )
 
-    case Task.yield(task, @task_timeout_ms) do
+    case result do
       {:ok, {:ok, :kill_received}} ->
         Logger.debug("[RedisQ] Successfully processed kill", kill_id: id)
         {:ok, :kill_received}
@@ -566,8 +570,7 @@ defmodule WandererKills.Ingest.RedisQ do
            }
          )}
 
-      nil ->
-        Task.shutdown(task, :brutal_kill)
+      {:error, :timeout} ->
         Logger.warning("[RedisQ] Kill #{id} processing timed out after #{@task_timeout_ms}ms")
         {:error, :timeout}
     end
