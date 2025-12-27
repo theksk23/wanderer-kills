@@ -14,6 +14,7 @@ defmodule WandererKills.Ingest.RedisQ do
 
   alias WandererKills.Core.EtsOwner
   alias WandererKills.Core.Support.Error
+  alias WandererKills.Core.Support.SupervisedTask
   alias WandererKills.Core.Support.Utils
   alias WandererKills.Domain.Killmail
   alias WandererKills.Http.Client, as: HttpClient
@@ -529,31 +530,32 @@ defmodule WandererKills.Ingest.RedisQ do
       destroyed_value: Map.get(safe_zkb, "destroyedValue")
     )
 
-    task =
-      Task.Supervisor.async(WandererKills.TaskSupervisor, fn ->
-        fetch_and_process_killmail(id, zkb)
-      end)
+    result =
+      SupervisedTask.async(
+        fn -> fetch_and_process_killmail(id, zkb) end,
+        timeout: @task_timeout_ms,
+        task_name: "redisq_kill_processing",
+        metadata: %{kill_id: id, queue_id: queue_id}
+      )
 
-    task
-    |> Task.await(@task_timeout_ms)
-    |> case do
-      {:ok, :kill_received} ->
+    case result do
+      {:ok, {:ok, :kill_received}} ->
         Logger.debug("[RedisQ] Successfully processed kill", kill_id: id)
         {:ok, :kill_received}
 
-      {:ok, :kill_older} ->
+      {:ok, {:ok, :kill_older}} ->
         Logger.debug("[RedisQ] Kill ID=#{id} is older than cutoff → skipping.")
         {:ok, :kill_older}
 
-      {:ok, :kill_skipped} ->
+      {:ok, {:ok, :kill_skipped}} ->
         Logger.debug("[RedisQ] Kill ID=#{id} already ingested → skipping.")
         {:ok, :kill_skipped}
 
-      {:error, reason} ->
+      {:ok, {:error, reason}} ->
         Logger.error("[RedisQ] Kill #{id} processing failed: #{inspect(reason)}")
         {:error, reason}
 
-      other ->
+      {:ok, other} ->
         Logger.error("[RedisQ] Unexpected task result for kill #{id}: #{inspect(other)}")
 
         {:error,
@@ -567,6 +569,10 @@ defmodule WandererKills.Ingest.RedisQ do
              queue_id: queue_id
            }
          )}
+
+      {:error, :timeout} ->
+        Logger.warning("[RedisQ] Kill #{id} processing timed out after #{@task_timeout_ms}ms")
+        {:error, :timeout}
     end
   end
 
